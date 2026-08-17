@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Eaglercraft — Files</title>
+<style>
+*{box-sizing:border-box}
+:root{
+    --bg:#f7f7f8;
+    --panel:#fff;
+    --text:#202124;
+    --muted:#777;
+    --border:#e5e5e5;
+    --hover:#f1f3f5;
+    --accent:#0969da;
+    --danger:#e5534b;
+}
+@media(prefers-color-scheme:dark){
+    :root{
+        --bg:#0d1117;
+        --panel:#161b22;
+        --text:#e6edf3;
+        --muted:#8b949e;
+        --border:#30363d;
+        --hover:#21262d;
+        --accent:#58a6ff;
+        --danger:#f85149;
+    }
+}
+body{
+    margin:0;
+    background:var(--bg);
+    color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+}
+header{
+    position:sticky;
+    top:0;
+    z-index:10;
+    background:var(--panel);
+    border-bottom:1px solid var(--border);
+    padding:20px;
+}
+.top{
+    max-width:1100px;
+    margin:auto;
+}
+h1{
+    margin:0 0 6px;
+    font-size:22px;
+    display:flex;
+    align-items:center;
+    gap:10px;
+}
+.repo{
+    color:var(--muted);
+    font-size:14px;
+}
+.search-wrap{
+    position:relative;
+    margin-top:16px;
+}
+.search-wrap svg{
+    position:absolute;
+    left:14px;
+    top:50%;
+    transform:translateY(-50%);
+    color:var(--muted);
+    pointer-events:none;
+}
+.search{
+    width:100%;
+    padding:11px 14px 11px 40px;
+    border:1px solid var(--border);
+    border-radius:9px;
+    background:var(--bg);
+    color:var(--text);
+    font-size:15px;
+    outline:none;
+}
+.search:focus{
+    border-color:var(--accent);
+}
+main{
+    max-width:1100px;
+    margin:24px auto;
+    padding:0 20px;
+}
+.breadcrumb{
+    display:flex;
+    align-items:center;
+    gap:6px;
+    flex-wrap:wrap;
+    margin-bottom:14px;
+    font-size:14px;
+}
+.breadcrumb button{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    border:0;
+    background:none;
+    color:var(--accent);
+    cursor:pointer;
+    padding:3px;
+    font-size:14px;
+    font-family:inherit;
+}
+.breadcrumb .sep{
+    color:var(--muted);
+}
+.list{
+    background:var(--panel);
+    border:1px solid var(--border);
+    border-radius:10px;
+    overflow:hidden;
+}
+.item{
+    display:flex;
+    align-items:center;
+    min-height:54px;
+    padding:10px 16px;
+    gap:12px;
+    border-bottom:1px solid var(--border);
+    cursor:pointer;
+    transition:.12s;
+}
+.item:last-child{
+    border-bottom:0;
+}
+.item:hover{
+    background:var(--hover);
+}
+.item:focus-visible{
+    outline:2px solid var(--accent);
+    outline-offset:-2px;
+    background:var(--hover);
+}
+.icon{
+    width:26px;
+    flex:none;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+}
+.ficon{
+    display:block;
+    flex:none;
+}
+.name{
+    flex:1;
+    min-width:0;
+    word-break:break-word;
+}
+.meta{
+    color:var(--muted);
+    font-size:13px;
+    white-space:nowrap;
+}
+.loading,.error{
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+    gap:10px;
+    padding:40px;
+    text-align:center;
+    color:var(--muted);
+}
+.error{color:var(--danger)}
+.empty{
+    padding:35px;
+    text-align:center;
+    color:var(--muted);
+}
+.spin{
+    animation:spin 1s linear infinite;
+}
+@keyframes spin{
+    to{transform:rotate(360deg)}
+}
+.viewer{
+    display:none;
+    margin-top:20px;
+}
+.viewer pre{
+    margin:0;
+    padding:20px;
+    overflow:auto;
+    background:#0d1117;
+    color:#e6edf3;
+    border-radius:10px;
+    max-height:75vh;
+    white-space:pre-wrap;
+    word-break:break-word;
+}
+.viewer img{
+    display:block;
+    max-width:100%;
+    max-height:75vh;
+    margin:0 auto;
+    border-radius:10px;
+    background:repeating-conic-gradient(#80808022 0% 25%,transparent 0% 50%) 50%/20px 20px;
+}
+.viewer-head{
+    display:flex;
+    justify-content:space-between;
+    align-items:center;
+    gap:10px;
+    margin-bottom:10px;
+}
+.viewer-head button,
+.viewer-head a{
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    padding:8px 12px;
+    border:1px solid var(--border);
+    border-radius:7px;
+    background:var(--panel);
+    color:var(--text);
+    text-decoration:none;
+    cursor:pointer;
+    font-size:14px;
+    font-family:inherit;
+}
+</style>
+</head>
+<body>
+<header>
+<div class="top">
+    <h1 id="pageTitle"></h1>
+    <div class="repo">meowmi0122 / Eaglercraft</div>
+    <div class="search-wrap">
+        <span id="searchIcon"></span>
+        <input id="search" class="search" placeholder="…">
+    </div>
+</div>
+</header>
+<main>
+<div id="breadcrumb" class="breadcrumb"></div>
+<div id="list" class="list">
+    <div class="loading"></div>
+</div>
+<div id="viewer" class="viewer">
+    <div class="viewer-head">
+        <strong id="viewerTitle"></strong>
+        <div style="display:flex;gap:8px">
+            <button id="closeBtn"></button>
+            <a id="rawLink" target="_blank" rel="noopener"></a>
+        </div>
+    </div>
+    <pre id="viewerContent"></pre>
+    <img id="viewerImage" alt="" style="display:none">
+</div>
+</main>
+<script>
+"use strict";
+
+const OWNER = "meowmi0122";
+const REPO = "Eaglercraft";
+const BRANCH = "main";
+const API = `https://api.github.com/repos/${OWNER}/${REPO}/contents`;
+
+let currentPath = "";
+let currentItems = [];
+let loadToken = 0;
+const cache = new Map();
+
+/* ---------- icon system (SVG, no emoji) ---------- */
+
+const SHAPES = {
+    folder: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
+    file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>',
+    code: '<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>',
+    text: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>',
+    image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>',
+    archive: '<polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/>',
+    back: '<line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>',
+    home: '<path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/>',
+    search: '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+    close: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+    alert: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
+    external: '<path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/>',
+    spinner: '<line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/>'
+};
+
+const IMAGE_EXT = new Set(["png","jpg","jpeg","gif","webp","bmp","ico","svg"]);
+
+const FILE_TYPES = {
+    html:{shape:"code",color:"#e34c26"},
+    htm:{shape:"code",color:"#e34c26"},
+    css:{shape:"code",color:"#7952b3"},
+    js:{shape:"code",color:"#c9a227"},
+    mjs:{shape:"code",color:"#c9a227"},
+    ts:{shape:"code",color:"#3178c6"},
+    json:{shape:"code",color:"#cbae2a"},
+    py:{shape:"code",color:"#3572a5"},
+    java:{shape:"code",color:"#b07219"},
+    c:{shape:"code",color:"#5c6bc0"},
+    cpp:{shape:"code",color:"#5c6bc0"},
+    h:{shape:"code",color:"#5c6bc0"},
+    sh:{shape:"code",color:"#4eaa25"},
+    md:{shape:"text",color:"#6e7681"},
+    txt:{shape:"text",color:"#6e7681"},
+    zip:{shape:"archive",color:"#d97706"}
+};
+IMAGE_EXT.forEach(ext => { FILE_TYPES[ext] = {shape:"image", color:"#2f9e44"}; });
+
+function svg(name, {size = 18, color = "currentColor", cls = ""} = {}){
+    return `<svg class="ficon ${cls}" style="color:${color}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${SHAPES[name]}</svg>`;
+}
+
+function extOf(name){
+    return name.includes(".") ? name.split(".").pop().toLowerCase() : "";
+}
+
+function iconFor(item){
+    if(item.type === "dir") return svg("folder", {color:"#e3b341"});
+    const type = FILE_TYPES[extOf(item.name)];
+    if(type) return svg(type.shape, {color:type.color});
+    return svg("file", {color:"var(--muted)"});
+}
+
+/* ---------- utilities ---------- */
+
+function formatSize(bytes){
+    if(bytes === 0) return "0 B";
+    if(!bytes) return "";
+    const units = ["B","KB","MB","GB"];
+    const i = Math.floor(Math.log(bytes) / Math.log(1024));
+    return `${(bytes / Math.pow(1024, i)).toFixed(i ? 1 : 0)} ${units[i]}`;
+}
+
+function escapeHTML(text){
+    return text
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+}
+
+function debounce(fn, delay){
+    let timer;
+    return (...args) => {
+        clearTimeout(timer);
+        timer = setTimeout(() => fn(...args), delay);
+    };
+}
+
+/* ---------- data loading ---------- */
+
+async function load(path = ""){
+    currentPath = path;
+    const searchInput = document.getElementById("search");
+    if(searchInput) searchInput.value = "";
+    closeViewer();
+
+    const token = ++loadToken;
+    const list = document.getElementById("list");
+    list.innerHTML = `
+        <div class="loading">
+            ${svg("spinner", {size:22, cls:"spin"})}
+        </div>
+    `;
+
+    try{
+        let data = cache.get(path);
+        if(!data){
+            const response = await fetch(`${API}/${path}?ref=${BRANCH}`);
+            if(token !== loadToken) return;
+            if(!response.ok){
+                throw new Error(String(response.status));
+            }
+            data = await response.json();
+            cache.set(path, data);
+        }
+        if(token !== loadToken) return;
+
+        currentItems = Array.isArray(data) ? data : [data];
+        currentItems.sort((a, b) => {
+            if(a.type !== b.type) return a.type === "dir" ? -1 : 1;
+            return a.name.localeCompare(b.name, undefined, {numeric:true, sensitivity:"base"});
+        });
+        render();
+    }catch(error){
+        if(token !== loadToken) return;
+        list.innerHTML = `
+            <div class="error">
+                ${svg("alert", {size:28, color:"var(--danger)"})}
+                <div></div>
+            </div>
+        `;
+    }
+}
+
+/* ---------- rendering ---------- */
+
+function render(){
+    const list = document.getElementById("list");
+    list.innerHTML = "";
+
+    if(currentPath){
+        const parent = currentPath.split("/").slice(0, -1).join("/");
+        const back = document.createElement("div");
+        back.className = "item";
+        back.setAttribute("role", "button");
+        back.setAttribute("tabindex", "0");
+        back.innerHTML = `<span class="icon">${svg("back")}</span>`;
+        back.onclick = () => load(parent);
+        back.onkeydown = (e) => { if(e.key === "Enter" || e.key === " "){ e.preventDefault(); load(parent); } };
+        list.appendChild(back);
+    }
+
+    if(currentItems.length === 0){
+        list.innerHTML += `<div class="empty"></div>`;
+        renderBreadcrumb();
+        return;
+    }
+
+    currentItems.forEach(item => {
+        const row = document.createElement("div");
+        row.className = "item";
+        row.dataset.name = item.name.toLowerCase();
+        row.setAttribute("role", "button");
+        row.setAttribute("tabindex", "0");
+        row.innerHTML = `
+            <span class="icon">${iconFor(item)}</span>
+            <span class="name">${escapeHTML(item.name)}</span>
+            <span class="meta">${item.type === "file" ? formatSize(item.size) : ""}</span>
+        `;
+        const open = () => item.type === "dir" ? load(item.path) : openFile(item);
+        row.onclick = open;
+        row.onkeydown = (e) => { if(e.key === "Enter" || e.key === " "){ e.preventDefault(); open(); } };
+        list.appendChild(row);
+    });
+
+    renderBreadcrumb();
+}
+
+function renderBreadcrumb(){
+    const box = document.getElementById("breadcrumb");
+    box.innerHTML = "";
+
+    const root = document.createElement("button");
+    root.innerHTML = `${svg("folder", {size:15, color:"#000"})}<span>Eaglercraft</span>`;
+    root.onclick = () => load("");
+    box.appendChild(root);
+
+    if(!currentPath) return;
+
+    let path = "";
+    currentPath.split("/").forEach(part => {
+        const sep = document.createElement("span");
+        sep.className = "sep";
+        sep.textContent = "/";
+        box.appendChild(sep);
+
+        path += (path ? "/" : "") + part;
+        const target = path;
+        const button = document.createElement("button");
+        button.textContent = part;
+        button.onclick = () => load(target);
+        box.appendChild(button);
+    });
+}
+
+/* ---------- file viewer ---------- */
+
+async function openFile(item){
+    const viewer = document.getElementById("viewer");
+    const pre = document.getElementById("viewerContent");
+    const img = document.getElementById("viewerImage");
+    const title = document.getElementById("viewerTitle");
+    const raw = document.getElementById("rawLink");
+
+    viewer.style.display = "block";
+    title.textContent = item.name;
+    raw.href = item.download_url;
+    raw.innerHTML = `${svg("external", {size:15})}<span>Raw</span>`;
+
+    window.scrollTo({top: viewer.offsetTop - 20, behavior:"smooth"});
+
+    if(IMAGE_EXT.has(extOf(item.name))){
+        pre.style.display = "none";
+        img.style.display = "block";
+        img.alt = item.name;
+        img.src = item.download_url;
+        return;
+    }
+
+    img.style.display = "none";
+    pre.style.display = "block";
+    pre.textContent = "";
+    try{
+        const response = await fetch(item.download_url);
+        if(!response.ok) throw new Error(String(response.status));
+        pre.textContent = await response.text();
+    }catch(error){
+        pre.textContent = "";
+    }
+}
+
+function closeViewer(){
+    document.getElementById("viewer").style.display = "none";
+}
+
+/* ---------- search ---------- */
+
+function filterFiles(){
+    const query = document.getElementById("search").value.toLowerCase();
+    document.querySelectorAll(".item").forEach(item => {
+        if(!item.dataset.name) return;
+        item.style.display = item.dataset.name.includes(query) ? "flex" : "none";
+    });
+}
+
+/* ---------- init ---------- */
+
+document.getElementById("pageTitle").innerHTML = `${svg("folder", {size:22, color:"#000"})}<span>Eaglercraft</span>`;
+document.getElementById("searchIcon").innerHTML = svg("search", {size:16});
+document.getElementById("closeBtn").innerHTML = svg("close", {size:15});
+document.getElementById("closeBtn").onclick = closeViewer;
+document.getElementById("search").addEventListener("input", debounce(filterFiles, 120));
+
+load("");
+</script>
+</body>
+</html>
