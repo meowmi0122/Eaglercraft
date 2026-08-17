@@ -277,7 +277,7 @@ const FILE_TYPES = {
     ts:{shape:"code",color:"#3178c6"},
     json:{shape:"code",color:"#cbae2a"},
     py:{shape:"code",color:"#3572a5"},
-    java:{shape:"color",color:"#b07219"},
+    java:{shape:"code",color:"#b07219"},
     c:{shape:"code",color:"#5c6bc0"},
     cpp:{shape:"code",color:"#5c6bc0"},
     h:{shape:"code",color:"#5c6bc0"},
@@ -333,6 +333,12 @@ function getFileUrl(path){
     return `${window.location.origin}/${cleanPath}`;
 }
 
+function getPathFromUrl(){
+    let path = window.location.pathname.replace(/^\/|\/$/g, '');
+    if(path === "index.html") return "";
+    return decodeURIComponent(path);
+}
+
 function debounce(fn, delay){
     let timer;
     return (...args) => {
@@ -341,10 +347,17 @@ function debounce(fn, delay){
     };
 }
 
-async function load(path = ""){
+async function load(path = "", pushHistory = true){
     currentPath = path;
     const searchInput = document.getElementById("search");
     if(searchInput) searchInput.value = "";
+
+    if(pushHistory){
+        const targetUrl = path ? "/" + path.split("/").map(encodeURIComponent).join("/") : "/";
+        if(decodeURIComponent(window.location.pathname.replace(/^\/|\/$/g, "")) !== path){
+            history.pushState({ path }, "", targetUrl);
+        }
+    }
 
     const token = ++loadToken;
     const list = document.getElementById("list");
@@ -416,14 +429,18 @@ function render(){
         const safeName = escapeHTML(item.name);
 
         if(item.type === "dir"){
+            const folderUrl = escapeHTML(getFileUrl(item.path));
             row.innerHTML = `
                 <span class="icon">${iconFor(item)}</span>
                 <span class="name">
-                    <button class="name-link" type="button">${safeName}</button>
+                    <a class="name-link" href="${folderUrl}">${safeName}</a>
                 </span>
                 <span class="meta"></span>
             `;
-            row.onclick = () => load(item.path);
+            row.onclick = (e) => {
+                e.preventDefault();
+                load(item.path);
+            };
         } else {
             const fileUrl = escapeHTML(getFileUrl(item.path));
             row.innerHTML = `
@@ -491,11 +508,16 @@ function filterFiles(){
     });
 }
 
+window.addEventListener("popstate", (e) => {
+    const path = e.state && e.state.path !== undefined ? e.state.path : getPathFromUrl();
+    load(path, false);
+});
+
 document.getElementById("pageTitle").innerHTML = `${svg("folder", {size:22, color:"var(--text)"})}<span>Eaglercraft</span>`;
 document.getElementById("searchIcon").innerHTML = svg("search", {size:16});
 document.getElementById("search").addEventListener("input", debounce(filterFiles, 120));
 
-load("");
+load(getPathFromUrl(), false);
 </script>
 </body>
 </html>
