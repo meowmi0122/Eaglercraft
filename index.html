@@ -246,12 +246,86 @@ const OWNER = "meowmi0122";
 const REPO = "Eaglercraft";
 const BRANCH = "main";
 const API = `https://api.github.com/repos/${OWNER}/${REPO}/contents`;
+const BLOB_API = `https://api.github.com/repos/${OWNER}/${REPO}/git/blobs`;
 
 let currentPath = "";
 let currentItems = [];
 let loadToken = 0;
 const cache = new Map();
-const lfsSizeMap = new Map();
+
+/* ---------- Git LFS real-size resolution ----------
+   Contents API reports the size of the *pointer* blob for LFS-tracked
+   files (a few hundred bytes), not the real file size. A pointer blob
+   is always tiny, e.g.:
+       version https://git-lfs.github.com/spec/v1
+       oid sha256:<64 hex chars>
+       size <real byte count>
+   The real size is embedded in that tiny pointer text itself, so we
+   only need to fetch the (small) blob content via the Git Blobs API
+   and parse it — never the actual large object. Results are cached
+   by blob sha (content-addressed, so this never goes stale). */
+const LFS_POINTER_MAX_SIZE = 1024; // real pointer files are ~130-200 bytes; generous safety margin
+const LFS_POINTER_HEADER = "version https://git-lfs.github.com/spec/v1";
+const lfsSizeCache = new Map(); // sha -> formatted size string | "LFS" | null (confirmed not-LFS)
+
+function apiPathSegments(path){
+    // Encode each path segment individually so spaces, CJK characters,
+    // and symbols like "§" survive the request, without turning the
+    // "/" separators themselves into %2F.
+    return path
+        .split("/")
+        .filter(Boolean)
+        .map(encodeURIComponent)
+        .join("/");
+}
+
+function base64ToText(base64){
+    const clean = base64.replace(/\s+/g, "");
+    const binary = atob(clean);
+    // Pointer files are pure ASCII per the git-lfs spec, so a direct
+    // char-code mapping is safe and avoids unnecessary UTF-8 decoding.
+    let out = "";
+    for(let i = 0; i < binary.length; i++) out += String.fromCharCode(binary.charCodeAt(i));
+    return out;
+}
+
+async function resolveRealSize(item, metaEl){
+    if(item.type !== "file") return;
+    if(!item.sha) return;
+    if(!item.size || item.size > LFS_POINTER_MAX_SIZE) return; // can't be an LFS pointer
+
+    if(lfsSizeCache.has(item.sha)){
+        const cached = lfsSizeCache.get(item.sha);
+        if(cached) metaEl.textContent = cached;
+        return;
+    }
+
+    try{
+        const res = await fetch(`${BLOB_API}/${item.sha}`);
+        if(!res.ok){
+            return; // rate-limited / transient error: leave the original size shown
+        }
+        const blob = await res.json();
+        if(blob.encoding !== "base64" || !blob.content){
+            return;
+        }
+
+        const text = base64ToText(blob.content);
+        if(!text.startsWith(LFS_POINTER_HEADER)){
+            lfsSizeCache.set(item.sha, null); // confirmed: a genuinely small regular file
+            return;
+        }
+
+        const match = text.match(/(?:^|\n)size (\d+)/);
+        const display = match ? formatSize(parseInt(match[1], 10)) : "LFS";
+        lfsSizeCache.set(item.sha, display);
+        metaEl.textContent = display;
+    }catch(error){
+        // network failure etc. — never fabricate a number, just leave what's shown
+    }
+}
+
+/* ---------- icon system (SVG, no emoji) ---------- */
 
 const SHAPES = {
     folder: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
@@ -303,7 +377,7 @@ function svg(name, {size = 18, color = "currentColor", cls = ""} = {}){
 }
 
 function extOf(name){
-    return name && name.includes(".") ? name.split(".").pop().toLowerCase() : "";
+    return name.includes(".") ? name.split(".").pop().toLowerCase() : "";
 }
 
 function iconFor(item){
@@ -315,49 +389,14 @@ function iconFor(item){
 
 function formatSize(bytes){
     if(bytes === 0) return "0 B";
-    if(!bytes || typeof bytes !== "number" || isNaN(bytes)) return "";
-    const units = ["B","KB","MB","GB","TB"];
+    if(!bytes) return "";
+    const units = ["B","KB","MB","GB"];
     const i = Math.floor(Math.log(bytes) / Math.log(1024));
     return `${(bytes / Math.pow(1024, i)).toFixed(i ? 1 : 0)} ${units[i]}`;
 }
 
-function getItemSizeText(item){
-    if(!item || item.type !== "file") return "";
-    if(lfsSizeMap.has(item.path)){
-        return formatSize(lfsSizeMap.get(item.path));
-    }
-    return formatSize(item.size);
-}
-
-async function resolveLfsSizes(items){
-    const candidates = items.filter(item => item.type === "file" && item.size > 0 && item.size <= 2048);
-    if(candidates.length === 0) return;
-
-    await Promise.all(candidates.map(async (item) => {
-        if(lfsSizeMap.has(item.path)) return;
-        if(!item.download_url) return;
-
-        try{
-            const res = await fetch(item.download_url);
-            if(res.ok){
-                const text = await res.text();
-                if(text.includes("version https://git-lfs.github.com/spec/v1") || text.includes("oid sha256:")){
-                    const match = text.match(/^size\s+(\d+)$/m);
-                    if(match && match[1]){
-                        const realBytes = parseInt(match[1], 10);
-                        if(!isNaN(realBytes) && realBytes > 0){
-                            lfsSizeMap.set(item.path, realBytes);
-                        }
-                    }
-                }
-            }
-        }catch(e){}
-    }));
-}
-
 function escapeHTML(text){
-    if(!text) return "";
-    return String(text)
+    return text
         .replaceAll("&", "&amp;")
         .replaceAll("<", "&lt;")
         .replaceAll(">", "&gt;")
@@ -365,28 +404,15 @@ function escapeHTML(text){
         .replaceAll("'", "&#039;");
 }
 
-function getHashUrl(path){
-    if(!path) return `${window.location.origin}${window.location.pathname}#/`;
+function getFileUrl(path){
     const cleanPath = path.split('/').map(encodeURIComponent).join('/');
-    return `${window.location.origin}${window.location.pathname}#/${cleanPath}`;
+    return `${window.location.origin}/${cleanPath}`;
 }
 
-function getPathFromHash(){
-    let hash = window.location.hash;
-    if(!hash || hash === "#" || hash === "#/") return "";
-    if(hash.startsWith("#/")) hash = hash.slice(2);
-    else if(hash.startsWith("#")) hash = hash.slice(1);
-    try{
-        return decodeURIComponent(hash.trim());
-    }catch(e){
-        return hash.trim();
-    }
-}
-
-function getApiUrl(path){
-    if(!path) return `${API}?ref=${BRANCH}`;
-    const cleanPath = path.split('/').map(encodeURIComponent).join('/');
-    return `${API}/${cleanPath}?ref=${BRANCH}`;
+function getPathFromUrl(){
+    let path = window.location.pathname.replace(/^\/|\/$/g, '');
+    if(path === "index.html") return "";
+    return decodeURIComponent(path);
 }
 
 function debounce(fn, delay){
@@ -397,16 +423,15 @@ function debounce(fn, delay){
     };
 }
 
-async function load(path = "", updateHash = true){
+async function load(path = "", pushHistory = true){
     currentPath = path;
     const searchInput = document.getElementById("search");
     if(searchInput) searchInput.value = "";
 
-    if(updateHash){
-        const targetHash = path ? "#/" + path.split("/").map(encodeURIComponent).join("/") : "#/";
-        if(window.location.hash !== targetHash){
-            window.location.hash = targetHash;
-            return;
+    if(pushHistory){
+        const targetUrl = path ? "/" + path.split("/").map(encodeURIComponent).join("/") : "/";
+        if(decodeURIComponent(window.location.pathname.replace(/^\/|\/$/g, "")) !== path){
+            history.pushState({ path }, "", targetUrl);
         }
     }
 
@@ -421,7 +446,7 @@ async function load(path = "", updateHash = true){
     try{
         let data = cache.get(path);
         if(!data){
-            const response = await fetch(getApiUrl(path));
+            const response = await fetch(`${API}/${apiPathSegments(path)}?ref=${BRANCH}`);
             if(token !== loadToken) return;
             if(!response.ok){
                 throw new Error(String(response.status));
@@ -431,26 +456,11 @@ async function load(path = "", updateHash = true){
         }
         if(token !== loadToken) return;
 
-        if(!Array.isArray(data) && data && data.type === "file"){
-            if(data.download_url){
-                window.location.href = data.download_url;
-                return;
-            }
-        }
-
-        currentItems = Array.isArray(data) ? data : (data ? [data] : []);
+        currentItems = Array.isArray(data) ? data : [data];
         currentItems.sort((a, b) => {
-            if(!a || !b) return 0;
             if(a.type !== b.type) return a.type === "dir" ? -1 : 1;
-            return String(a.name || "").localeCompare(String(b.name || ""), undefined, {numeric:true, sensitivity:"base"});
+            return a.name.localeCompare(b.name, undefined, {numeric:true, sensitivity:"base"});
         });
-
-        try{
-            await resolveLfsSizes(currentItems);
-        }catch(e){}
-
-        if(token !== loadToken) return;
-
         render();
     }catch(error){
         if(token !== loadToken) return;
@@ -468,86 +478,75 @@ function render(){
     list.innerHTML = "";
 
     if(currentPath){
-        try{
-            const parent = currentPath.split("/").slice(0, -1).join("/");
-            const back = document.createElement("div");
-            back.className = "item";
-            back.setAttribute("role", "button");
-            back.setAttribute("tabindex", "0");
-            back.innerHTML = `<span class="icon">${svg("back", {color:"var(--muted)"})}</span>`;
-            back.onclick = () => load(parent, true);
-            back.onkeydown = (e) => { if(e.key === "Enter" || e.key === " "){ e.preventDefault(); load(parent, true); } };
-            list.appendChild(back);
-        }catch(e){}
+        const parent = currentPath.split("/").slice(0, -1).join("/");
+        const back = document.createElement("div");
+        back.className = "item";
+        back.setAttribute("role", "button");
+        back.setAttribute("tabindex", "0");
+        back.innerHTML = `<span class="icon">${svg("back", {color:"var(--muted)"})}</span>`;
+        back.onclick = () => load(parent);
+        back.onkeydown = (e) => { if(e.key === "Enter" || e.key === " "){ e.preventDefault(); load(parent); } };
+        list.appendChild(back);
     }
 
-    if(!Array.isArray(currentItems) || currentItems.length === 0){
+    if(currentItems.length === 0){
         list.innerHTML += `<div class="empty"></div>`;
         renderBreadcrumb();
         return;
     }
 
     currentItems.forEach(item => {
-        if(!item || !item.name) return;
+        const row = document.createElement("div");
+        row.className = "item";
+        row.dataset.name = item.name.toLowerCase();
+        row.setAttribute("role", "button");
+        row.setAttribute("tabindex", "0");
 
-        try{
-            const row = document.createElement("div");
-            row.className = "item";
-            row.dataset.name = String(item.name).toLowerCase();
-            row.setAttribute("role", "button");
-            row.setAttribute("tabindex", "0");
+        const safeName = escapeHTML(item.name);
 
-            const safeName = escapeHTML(item.name);
-            const itemPath = item.path || item.name;
+        if(item.type === "dir"){
+            const folderUrl = escapeHTML(getFileUrl(item.path));
+            row.innerHTML = `
+                <span class="icon">${iconFor(item)}</span>
+                <span class="name">
+                    <a class="name-link" href="${folderUrl}">${safeName}</a>
+                </span>
+                <span class="meta"></span>
+            `;
+            row.onclick = (e) => {
+                e.preventDefault();
+                load(item.path);
+            };
+        } else {
+            const fileUrl = escapeHTML(getFileUrl(item.path));
+            row.innerHTML = `
+                <span class="icon">${iconFor(item)}</span>
+                <span class="name">
+                    <a class="name-link" href="${fileUrl}">${safeName}</a>
+                </span>
+                <span class="meta">${formatSize(item.size)}</span>
+                <a class="raw-action" href="${escapeHTML(item.download_url)}" target="_blank" rel="noopener">Raw</a>
+            `;
 
-            if(item.type === "dir"){
-                const folderUrl = escapeHTML(getHashUrl(itemPath));
-                row.innerHTML = `
-                    <span class="icon">${iconFor(item)}</span>
-                    <span class="name">
-                        <a class="name-link" href="${folderUrl}">${safeName}</a>
-                    </span>
-                    <span class="meta"></span>
-                `;
-                row.onclick = (e) => {
-                    e.preventDefault();
-                    load(itemPath, true);
-                };
-            } else {
-                const fileHashUrl = escapeHTML(getHashUrl(itemPath));
-                const rawUrl = item.download_url ? escapeHTML(item.download_url) : fileHashUrl;
-                row.innerHTML = `
-                    <span class="icon">${iconFor(item)}</span>
-                    <span class="name">
-                        <a class="name-link" href="${fileHashUrl}">${safeName}</a>
-                    </span>
-                    <span class="meta">${getItemSizeText(item)}</span>
-                    <a class="raw-action" href="${rawUrl}" target="_blank" rel="noopener">Raw</a>
-                `;
-
-                row.onclick = (e) => {
-                    if(e.target.closest(".raw-action")) return;
-                    if(item.download_url){
-                        window.location.href = item.download_url;
-                    }else{
-                        window.location.href = getHashUrl(itemPath);
-                    }
-                };
-            }
-
-            row.onkeydown = (e) => {
-                if(e.key === "Enter" || e.key === " "){
-                    if(e.target.closest(".raw-action")) return;
-                    e.preventDefault();
-                    if(item.type === "dir") load(itemPath, true);
-                    else if(item.download_url) window.location.href = item.download_url;
-                }
+            row.onclick = (e) => {
+                if(e.target.closest(".raw-action")) return;
+                window.location.href = getFileUrl(item.path);
             };
 
-            list.appendChild(row);
-        }catch(itemError){
-            console.error(itemError);
+            const metaEl = row.querySelector(".meta");
+            if(metaEl) resolveRealSize(item, metaEl);
         }
+
+        row.onkeydown = (e) => {
+            if(e.key === "Enter" || e.key === " "){
+                if(e.target.closest(".raw-action")) return;
+                e.preventDefault();
+                if(item.type === "dir") load(item.path);
+                else window.location.href = getFileUrl(item.path);
+            }
+        };
+
+        list.appendChild(row);
     });
 
     renderBreadcrumb();
@@ -559,7 +558,7 @@ function renderBreadcrumb(){
 
     const root = document.createElement("button");
     root.innerHTML = `${svg("folder", {size:15, color:"var(--text)"})}<span>Eaglercraft</span>`;
-    root.onclick = () => load("", true);
+    root.onclick = () => load("");
     box.appendChild(root);
 
     if(!currentPath) return;
@@ -575,7 +574,7 @@ function renderBreadcrumb(){
         const target = path;
         const button = document.createElement("button");
         button.textContent = part;
-        button.onclick = () => load(target, true);
+        button.onclick = () => load(target);
         box.appendChild(button);
     });
 }
@@ -588,18 +587,16 @@ function filterFiles(){
     });
 }
 
-window.addEventListener("hashchange", () => {
-    const path = getPathFromHash();
-    if(path !== currentPath){
-        load(path, false);
-    }
+window.addEventListener("popstate", (e) => {
+    const path = e.state && e.state.path !== undefined ? e.state.path : getPathFromUrl();
+    load(path, false);
 });
 
 document.getElementById("pageTitle").innerHTML = `${svg("folder", {size:22, color:"var(--text)"})}<span>Eaglercraft</span>`;
 document.getElementById("searchIcon").innerHTML = svg("search", {size:16});
 document.getElementById("search").addEventListener("input", debounce(filterFiles, 120));
 
-load(getPathFromHash(), false);
+load(getPathFromUrl(), false);
 </script>
 </body>
 </html>
