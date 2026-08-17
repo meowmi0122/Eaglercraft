@@ -1,0 +1,4 @@
+*.zip filter=lfs diff=lfs merge=lfs -text
+Offline[[:space:]]Downloads/Clients/Other[[:space:]]clients/Astra-Client-Offline.html filter=lfs diff=lfs merge=lfs -text
+*.html !text !filter !merge !diff
+Offline[[:space:]]Downloads/Clients/Other[[:space:]]clients/Astra-Client-Offline.html !text !filter !merge !diff
