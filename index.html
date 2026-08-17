@@ -279,6 +279,16 @@ function apiPathSegments(path){
         .join("/");
 }
 
+function lfsMediaUrl(path){
+    // raw.githubusercontent.com (Contents API's download_url) only ever
+    // serves the small LFS pointer text, never the real object bytes.
+    // media.githubusercontent.com is the actual LFS media host GitHub's
+    // own "Download" button uses for LFS-tracked files; it works
+    // unauthenticated for public repos and resolves the pointer to the
+    // real file content server-side.
+    return `https://media.githubusercontent.com/media/${OWNER}/${REPO}/${BRANCH}/${apiPathSegments(path)}`;
+}
+
 function base64ToText(base64){
     const clean = base64.replace(/\s+/g, "");
     const binary = atob(clean);
@@ -289,21 +299,32 @@ function base64ToText(base64){
     return out;
 }
 
-async function resolveRealSize(item, metaEl){
+async function resolveRealSize(item, row){
+    const metaEl = row.querySelector(".meta");
     if(item.type !== "file") return;
     if(!item.sha) return;
     if(!item.size || item.size > LFS_POINTER_MAX_SIZE) return; // can't be an LFS pointer
 
+    const applyLfs = (displaySize) => {
+        if(metaEl) metaEl.textContent = displaySize;
+        const mediaUrl = lfsMediaUrl(item.path);
+        item.download_url = mediaUrl; // keep the item's own record in sync too
+        const nameLink = row.querySelector(".name-link");
+        const rawLink = row.querySelector(".raw-action");
+        if(nameLink) nameLink.href = mediaUrl;
+        if(rawLink) rawLink.href = mediaUrl;
+    };
+
     if(lfsSizeCache.has(item.sha)){
         const cached = lfsSizeCache.get(item.sha);
-        if(cached) metaEl.textContent = cached;
+        if(cached) applyLfs(cached);
         return;
     }
 
     try{
         const res = await fetch(`${BLOB_API}/${item.sha}`);
         if(!res.ok){
-            return; // rate-limited / transient error: leave the original size shown
+            return; // rate-limited / transient error: leave the original size + link shown
         }
         const blob = await res.json();
         if(blob.encoding !== "base64" || !blob.content){
@@ -319,9 +340,9 @@ async function resolveRealSize(item, metaEl){
         const match = text.match(/(?:^|\n)size (\d+)/);
         const display = match ? formatSize(parseInt(match[1], 10)) : "LFS";
         lfsSizeCache.set(item.sha, display);
-        metaEl.textContent = display;
+        applyLfs(display);
     }catch(error){
-        // network failure etc. — never fabricate a number, just leave what's shown
+        // network failure etc. — never fabricate a number or a broken link
     }
 }
 
@@ -530,19 +551,23 @@ function render(){
 
             row.onclick = (e) => {
                 if(e.target.closest(".raw-action")) return;
-                window.location.href = getFileUrl(item.path);
+                const link = row.querySelector(".name-link");
+                if(link) window.location.href = link.href;
             };
 
-            const metaEl = row.querySelector(".meta");
-            if(metaEl) resolveRealSize(item, metaEl);
+            resolveRealSize(item, row);
         }
 
         row.onkeydown = (e) => {
             if(e.key === "Enter" || e.key === " "){
                 if(e.target.closest(".raw-action")) return;
                 e.preventDefault();
-                if(item.type === "dir") load(item.path);
-                else window.location.href = getFileUrl(item.path);
+                if(item.type === "dir"){
+                    load(item.path);
+                }else{
+                    const link = row.querySelector(".name-link");
+                    if(link) window.location.href = link.href;
+                }
             }
         };
 
