@@ -251,6 +251,7 @@ let currentPath = "";
 let currentItems = [];
 let loadToken = 0;
 const cache = new Map();
+const lfsSizeMap = new Map();
 
 const SHAPES = {
     folder: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
@@ -302,7 +303,7 @@ function svg(name, {size = 18, color = "currentColor", cls = ""} = {}){
 }
 
 function extOf(name){
-    return name.includes(".") ? name.split(".").pop().toLowerCase() : "";
+    return name && name.includes(".") ? name.split(".").pop().toLowerCase() : "";
 }
 
 function iconFor(item){
@@ -314,14 +315,49 @@ function iconFor(item){
 
 function formatSize(bytes){
     if(bytes === 0) return "0 B";
-    if(!bytes) return "";
-    const units = ["B","KB","MB","GB"];
+    if(!bytes || typeof bytes !== "number" || isNaN(bytes)) return "";
+    const units = ["B","KB","MB","GB","TB"];
     const i = Math.floor(Math.log(bytes) / Math.log(1024));
     return `${(bytes / Math.pow(1024, i)).toFixed(i ? 1 : 0)} ${units[i]}`;
 }
 
+function getItemSizeText(item){
+    if(!item || item.type !== "file") return "";
+    if(lfsSizeMap.has(item.path)){
+        return formatSize(lfsSizeMap.get(item.path));
+    }
+    return formatSize(item.size);
+}
+
+async function resolveLfsSizes(items){
+    const candidates = items.filter(item => item.type === "file" && item.size > 0 && item.size <= 2048);
+    if(candidates.length === 0) return;
+
+    await Promise.all(candidates.map(async (item) => {
+        if(lfsSizeMap.has(item.path)) return;
+        if(!item.download_url) return;
+
+        try{
+            const res = await fetch(item.download_url);
+            if(res.ok){
+                const text = await res.text();
+                if(text.includes("version https://git-lfs.github.com/spec/v1") || text.includes("oid sha256:")){
+                    const match = text.match(/^size\s+(\d+)$/m);
+                    if(match && match[1]){
+                        const realBytes = parseInt(match[1], 10);
+                        if(!isNaN(realBytes) && realBytes > 0){
+                            lfsSizeMap.set(item.path, realBytes);
+                        }
+                    }
+                }
+            }
+        }catch(e){}
+    }));
+}
+
 function escapeHTML(text){
-    return text
+    if(!text) return "";
+    return String(text)
         .replaceAll("&", "&amp;")
         .replaceAll("<", "&lt;")
         .replaceAll(">", "&gt;")
@@ -329,15 +365,28 @@ function escapeHTML(text){
         .replaceAll("'", "&#039;");
 }
 
-function getFileUrl(path){
+function getHashUrl(path){
+    if(!path) return `${window.location.origin}${window.location.pathname}#/`;
     const cleanPath = path.split('/').map(encodeURIComponent).join('/');
-    return `${window.location.origin}/${cleanPath}`;
+    return `${window.location.origin}${window.location.pathname}#/${cleanPath}`;
 }
 
-function getPathFromUrl(){
-    let path = window.location.pathname.replace(/^\/|\/$/g, '');
-    if(path === "index.html") return "";
-    return decodeURIComponent(path);
+function getPathFromHash(){
+    let hash = window.location.hash;
+    if(!hash || hash === "#" || hash === "#/") return "";
+    if(hash.startsWith("#/")) hash = hash.slice(2);
+    else if(hash.startsWith("#")) hash = hash.slice(1);
+    try{
+        return decodeURIComponent(hash.trim());
+    }catch(e){
+        return hash.trim();
+    }
+}
+
+function getApiUrl(path){
+    if(!path) return `${API}?ref=${BRANCH}`;
+    const cleanPath = path.split('/').map(encodeURIComponent).join('/');
+    return `${API}/${cleanPath}?ref=${BRANCH}`;
 }
 
 function debounce(fn, delay){
@@ -348,15 +397,16 @@ function debounce(fn, delay){
     };
 }
 
-async function load(path = "", pushHistory = true){
+async function load(path = "", updateHash = true){
     currentPath = path;
     const searchInput = document.getElementById("search");
     if(searchInput) searchInput.value = "";
 
-    if(pushHistory){
-        const targetUrl = path ? "/" + path.split("/").map(encodeURIComponent).join("/") : "/";
-        if(decodeURIComponent(window.location.pathname.replace(/^\/|\/$/g, "")) !== path){
-            history.pushState({ path }, "", targetUrl);
+    if(updateHash){
+        const targetHash = path ? "#/" + path.split("/").map(encodeURIComponent).join("/") : "#/";
+        if(window.location.hash !== targetHash){
+            window.location.hash = targetHash;
+            return;
         }
     }
 
@@ -371,7 +421,7 @@ async function load(path = "", pushHistory = true){
     try{
         let data = cache.get(path);
         if(!data){
-            const response = await fetch(`${API}/${path}?ref=${BRANCH}`);
+            const response = await fetch(getApiUrl(path));
             if(token !== loadToken) return;
             if(!response.ok){
                 throw new Error(String(response.status));
@@ -381,11 +431,26 @@ async function load(path = "", pushHistory = true){
         }
         if(token !== loadToken) return;
 
-        currentItems = Array.isArray(data) ? data : [data];
+        if(!Array.isArray(data) && data && data.type === "file"){
+            if(data.download_url){
+                window.location.href = data.download_url;
+                return;
+            }
+        }
+
+        currentItems = Array.isArray(data) ? data : (data ? [data] : []);
         currentItems.sort((a, b) => {
+            if(!a || !b) return 0;
             if(a.type !== b.type) return a.type === "dir" ? -1 : 1;
-            return a.name.localeCompare(b.name, undefined, {numeric:true, sensitivity:"base"});
+            return String(a.name || "").localeCompare(String(b.name || ""), undefined, {numeric:true, sensitivity:"base"});
         });
+
+        try{
+            await resolveLfsSizes(currentItems);
+        }catch(e){}
+
+        if(token !== loadToken) return;
+
         render();
     }catch(error){
         if(token !== loadToken) return;
@@ -403,72 +468,86 @@ function render(){
     list.innerHTML = "";
 
     if(currentPath){
-        const parent = currentPath.split("/").slice(0, -1).join("/");
-        const back = document.createElement("div");
-        back.className = "item";
-        back.setAttribute("role", "button");
-        back.setAttribute("tabindex", "0");
-        back.innerHTML = `<span class="icon">${svg("back", {color:"var(--muted)"})}</span>`;
-        back.onclick = () => load(parent);
-        back.onkeydown = (e) => { if(e.key === "Enter" || e.key === " "){ e.preventDefault(); load(parent); } };
-        list.appendChild(back);
+        try{
+            const parent = currentPath.split("/").slice(0, -1).join("/");
+            const back = document.createElement("div");
+            back.className = "item";
+            back.setAttribute("role", "button");
+            back.setAttribute("tabindex", "0");
+            back.innerHTML = `<span class="icon">${svg("back", {color:"var(--muted)"})}</span>`;
+            back.onclick = () => load(parent, true);
+            back.onkeydown = (e) => { if(e.key === "Enter" || e.key === " "){ e.preventDefault(); load(parent, true); } };
+            list.appendChild(back);
+        }catch(e){}
     }
 
-    if(currentItems.length === 0){
+    if(!Array.isArray(currentItems) || currentItems.length === 0){
         list.innerHTML += `<div class="empty"></div>`;
         renderBreadcrumb();
         return;
     }
 
     currentItems.forEach(item => {
-        const row = document.createElement("div");
-        row.className = "item";
-        row.dataset.name = item.name.toLowerCase();
-        row.setAttribute("role", "button");
-        row.setAttribute("tabindex", "0");
+        if(!item || !item.name) return;
 
-        const safeName = escapeHTML(item.name);
+        try{
+            const row = document.createElement("div");
+            row.className = "item";
+            row.dataset.name = String(item.name).toLowerCase();
+            row.setAttribute("role", "button");
+            row.setAttribute("tabindex", "0");
 
-        if(item.type === "dir"){
-            const folderUrl = escapeHTML(getFileUrl(item.path));
-            row.innerHTML = `
-                <span class="icon">${iconFor(item)}</span>
-                <span class="name">
-                    <a class="name-link" href="${folderUrl}">${safeName}</a>
-                </span>
-                <span class="meta"></span>
-            `;
-            row.onclick = (e) => {
-                e.preventDefault();
-                load(item.path);
-            };
-        } else {
-            const fileUrl = escapeHTML(getFileUrl(item.path));
-            row.innerHTML = `
-                <span class="icon">${iconFor(item)}</span>
-                <span class="name">
-                    <a class="name-link" href="${fileUrl}">${safeName}</a>
-                </span>
-                <span class="meta">${formatSize(item.size)}</span>
-                <a class="raw-action" href="${escapeHTML(item.download_url)}" target="_blank" rel="noopener">Raw</a>
-            `;
+            const safeName = escapeHTML(item.name);
+            const itemPath = item.path || item.name;
 
-            row.onclick = (e) => {
-                if(e.target.closest(".raw-action")) return;
-                window.location.href = getFileUrl(item.path);
-            };
-        }
+            if(item.type === "dir"){
+                const folderUrl = escapeHTML(getHashUrl(itemPath));
+                row.innerHTML = `
+                    <span class="icon">${iconFor(item)}</span>
+                    <span class="name">
+                        <a class="name-link" href="${folderUrl}">${safeName}</a>
+                    </span>
+                    <span class="meta"></span>
+                `;
+                row.onclick = (e) => {
+                    e.preventDefault();
+                    load(itemPath, true);
+                };
+            } else {
+                const fileHashUrl = escapeHTML(getHashUrl(itemPath));
+                const rawUrl = item.download_url ? escapeHTML(item.download_url) : fileHashUrl;
+                row.innerHTML = `
+                    <span class="icon">${iconFor(item)}</span>
+                    <span class="name">
+                        <a class="name-link" href="${fileHashUrl}">${safeName}</a>
+                    </span>
+                    <span class="meta">${getItemSizeText(item)}</span>
+                    <a class="raw-action" href="${rawUrl}" target="_blank" rel="noopener">Raw</a>
+                `;
 
-        row.onkeydown = (e) => {
-            if(e.key === "Enter" || e.key === " "){
-                if(e.target.closest(".raw-action")) return;
-                e.preventDefault();
-                if(item.type === "dir") load(item.path);
-                else window.location.href = getFileUrl(item.path);
+                row.onclick = (e) => {
+                    if(e.target.closest(".raw-action")) return;
+                    if(item.download_url){
+                        window.location.href = item.download_url;
+                    }else{
+                        window.location.href = getHashUrl(itemPath);
+                    }
+                };
             }
-        };
 
-        list.appendChild(row);
+            row.onkeydown = (e) => {
+                if(e.key === "Enter" || e.key === " "){
+                    if(e.target.closest(".raw-action")) return;
+                    e.preventDefault();
+                    if(item.type === "dir") load(itemPath, true);
+                    else if(item.download_url) window.location.href = item.download_url;
+                }
+            };
+
+            list.appendChild(row);
+        }catch(itemError){
+            console.error(itemError);
+        }
     });
 
     renderBreadcrumb();
@@ -480,7 +559,7 @@ function renderBreadcrumb(){
 
     const root = document.createElement("button");
     root.innerHTML = `${svg("folder", {size:15, color:"var(--text)"})}<span>Eaglercraft</span>`;
-    root.onclick = () => load("");
+    root.onclick = () => load("", true);
     box.appendChild(root);
 
     if(!currentPath) return;
@@ -496,7 +575,7 @@ function renderBreadcrumb(){
         const target = path;
         const button = document.createElement("button");
         button.textContent = part;
-        button.onclick = () => load(target);
+        button.onclick = () => load(target, true);
         box.appendChild(button);
     });
 }
@@ -509,16 +588,18 @@ function filterFiles(){
     });
 }
 
-window.addEventListener("popstate", (e) => {
-    const path = e.state && e.state.path !== undefined ? e.state.path : getPathFromUrl();
-    load(path, false);
+window.addEventListener("hashchange", () => {
+    const path = getPathFromHash();
+    if(path !== currentPath){
+        load(path, false);
+    }
 });
 
 document.getElementById("pageTitle").innerHTML = `${svg("folder", {size:22, color:"var(--text)"})}<span>Eaglercraft</span>`;
 document.getElementById("searchIcon").innerHTML = svg("search", {size:16});
 document.getElementById("search").addEventListener("input", debounce(filterFiles, 120));
 
-load(getPathFromUrl(), false);
+load(getPathFromHash(), false);
 </script>
 </body>
 </html>
