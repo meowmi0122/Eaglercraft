@@ -346,55 +346,47 @@ async function resolveRealSize(item, row){
     }
 }
 
-/* ---------- icon system (SVG, no emoji) ---------- */
+/* ---------- icon system (loaded from file-icon.json) ---------- */
 
-const SHAPES = {
-    folder: '<path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/>',
-    file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/>',
-    code: '<polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>',
-    text: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/>',
-    image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>',
-    archive: '<polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/>',
-    back: '<line x1="19" y1="12" x2="5" y2="12"/><polyline points="12 19 5 12 12 5"/>',
-    search: '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
-    alert: '<circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>',
-    spinner: '<line x1="12" y1="2" x2="12" y2="6"/><line x1="12" y1="18" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="7.76" y2="7.76"/><line x1="16.24" y1="16.24" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="6" y2="12"/><line x1="18" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="7.76" y2="16.24"/><line x1="16.24" y1="7.76" x2="19.07" y2="4.93"/>',
-    music: '<path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/>',
-    video: '<circle cx="12" cy="12" r="10"/><polygon points="10 8 16 12 10 16 10 8"/>'
-};
+let fileIcons = null;
+let svgInstance = 0;
 
-const IMAGE_EXT = new Set(["png","jpg","jpeg","gif","webp","bmp","ico","svg"]);
+async function loadFileIcons(){
+    const response = await fetch("/file-icon.json", {cache:"no-cache"});
+    if(!response.ok) throw new Error(`file-icon.json: ${response.status}`);
+    fileIcons = await response.json();
+}
 
-const FILE_TYPES = {
-    html:{shape:"code",color:"#e34c26"},
-    htm:{shape:"code",color:"#e34c26"},
-    css:{shape:"code",color:"#7952b3"},
-    js:{shape:"code",color:"#c9a227"},
-    mjs:{shape:"code",color:"#c9a227"},
-    ts:{shape:"code",color:"#3178c6"},
-    json:{shape:"code",color:"#cbae2a"},
-    py:{shape:"code",color:"#3572a5"},
-    java:{shape:"code",color:"#b07219"},
-    c:{shape:"code",color:"#5c6bc0"},
-    cpp:{shape:"code",color:"#5c6bc0"},
-    h:{shape:"code",color:"#5c6bc0"},
-    sh:{shape:"code",color:"#4eaa25"},
-    md:{shape:"text",color:"#6e7681"},
-    txt:{shape:"text",color:"#6e7681"},
-    zip:{shape:"archive",color:"#d97706"},
-    mp3:{shape:"music",color:"#9e2a2b"},
-    wav:{shape:"music",color:"#9e2a2b"},
-    ogg:{shape:"music",color:"#9e2a2b"},
-    flac:{shape:"music",color:"#9e2a2b"},
-    mp4:{shape:"video",color:"var(--text)"},
-    webm:{shape:"video",color:"var(--text)"},
-    mkv:{shape:"video",color:"var(--text)"},
-    mov:{shape:"video",color:"var(--text)"}
-};
-IMAGE_EXT.forEach(ext => { FILE_TYPES[ext] = {shape:"image", color:"#000000"}; });
+function iconDefinition(name){
+    return fileIcons && fileIcons.icons && fileIcons.icons[name]
+        ? fileIcons.icons[name]
+        : fileIcons.icons[fileIcons.defaults.file];
+}
 
-function svg(name, {size = 18, color = "currentColor", cls = ""} = {}){
-    return `<svg class="ficon ${cls}" style="color:${color}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${SHAPES[name]}</svg>`;
+function preferredIconColor(icon, explicitColor){
+    if(explicitColor) return explicitColor;
+    const isDark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
+    return isDark && icon.darkColor ? icon.darkColor : (icon.color || "currentColor");
+}
+
+function svg(name, {size = 18, color, cls = ""} = {}){
+    const icon = iconDefinition(name);
+    const iconColor = preferredIconColor(icon, color);
+    const render = icon.render || "stroke";
+    const fill = render === "stroke" ? "none" : "currentColor";
+    const stroke = render === "stroke" ? "currentColor" : "none";
+    let body = icon.svg || "";
+
+    // Devicon's multi-colour SVGs can contain reusable gradient IDs. Prefixing
+    // them per instance prevents collisions when many files share one page.
+    if(render === "raw"){
+        const prefix = `file-icon-${name}-${++svgInstance}`;
+        body = body
+            .replace(/id="([^"]+)"/g, `id="${prefix}-$1"`)
+            .replace(/url\(#([^\)]+)\)/g, `url(#${prefix}-$1)`);
+    }
+
+    return `<svg class="ficon ${cls}" style="color:${iconColor}" width="${size}" height="${size}" viewBox="${icon.viewBox}" fill="${fill}" stroke="${stroke}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
 }
 
 function extOf(name){
@@ -402,10 +394,10 @@ function extOf(name){
 }
 
 function iconFor(item){
-    if(item.type === "dir") return svg("folder", {color:"var(--folder)"});
-    const type = FILE_TYPES[extOf(item.name)];
-    if(type) return svg(type.shape, {color:type.color});
-    return svg("file", {color:"var(--muted)"});
+    if(item.type === "dir") return svg(fileIcons.defaults.folder);
+    const lowerName = item.name.toLowerCase();
+    const iconName = fileIcons.fileNames[lowerName] || fileIcons.extensions[extOf(lowerName)] || fileIcons.defaults.file;
+    return svg(iconName);
 }
 
 function formatSize(bytes){
@@ -617,11 +609,26 @@ window.addEventListener("popstate", (e) => {
     load(path, false);
 });
 
-document.getElementById("pageTitle").innerHTML = `${svg("folder", {size:22, color:"var(--text)"})}<span>Eaglercraft</span>`;
-document.getElementById("searchIcon").innerHTML = svg("search", {size:16});
-document.getElementById("search").addEventListener("input", debounce(filterFiles, 120));
+async function bootstrap(){
+    const list = document.getElementById("list");
+    try{
+        await loadFileIcons();
+        document.getElementById("pageTitle").innerHTML = `${svg("folder", {size:22, color:"var(--text)"})}<span>Eaglercraft</span>`;
+        document.getElementById("searchIcon").innerHTML = svg("search", {size:16});
+        document.getElementById("search").addEventListener("input", debounce(filterFiles, 120));
+        await load(getPathFromUrl(), false);
+    }catch(error){
+        console.error("Unable to initialise file icons", error);
+        list.innerHTML = `
+            <div class="error">
+                <div>Unable to load file-icon.json.</div>
+                <small>${escapeHTML(error.message || String(error))}</small>
+            </div>
+        `;
+    }
+}
 
-load(getPathFromUrl(), false);
+bootstrap();
 </script>
 </body>
 </html>
